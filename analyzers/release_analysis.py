@@ -22,7 +22,7 @@ class ReleaseAnalyzer:
     """Analyzes economic data releases"""
 
     def __init__(self, config: Dict[str, str]):
-        self.client = anthropic.Client(api_key=config['anthropic_key'])
+        self.client = anthropic.Client(api_key=config['anthropic'])
         self.historical_data = {}
         self.market_context = {}
 

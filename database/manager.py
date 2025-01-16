@@ -99,29 +99,48 @@ class DatabaseManager:
             )
             session.add(speech)
 
-    def get_latest_economic_data(self, 
-                               indicator: str,
-                               lookback_days: int = 30) -> List[EconomicRelease]:
-        """Get latest economic data for indicator"""
+    def get_latest_economic_data(self, lookback_days: int = 30) -> List[EconomicRelease]:
+        """Get latest economic data across all indicators"""
         with self.get_session() as session:
             cutoff = datetime.now() - timedelta(days=lookback_days)
             return session.query(EconomicRelease)\
-                .filter(EconomicRelease.indicator == indicator,
-                       EconomicRelease.timestamp >= cutoff)\
+                .filter(EconomicRelease.timestamp >= cutoff)\
                 .order_by(desc(EconomicRelease.timestamp))\
                 .all()
 
     def get_market_data(self,
-                       symbol: str,
-                       start_date: datetime,
-                       end_date: datetime) -> List[MarketData]:
-        """Get market data for symbol within date range"""
+                   start_date: datetime,
+                   end_date: datetime,
+                   symbols: Optional[List[str]] = None) -> Dict[str, List[Dict[str, Any]]]:
+        """Get market data within date range, optionally filtered by symbols"""
         with self.get_session() as session:
-            return session.query(MarketData)\
-                .filter(MarketData.symbol == symbol,
-                       MarketData.timestamp.between(start_date, end_date))\
-                .order_by(MarketData.timestamp)\
-                .all()
+            query = session.query(MarketData)\
+                .filter(MarketData.timestamp.between(start_date, end_date))
+                
+            if symbols:
+                query = query.filter(MarketData.symbol.in_(symbols))
+                
+            results = query.order_by(MarketData.timestamp).all()
+            
+            # Group results by asset class
+            grouped_data = {}
+            for result in results:
+                if result.asset_class.value not in grouped_data:
+                    grouped_data[result.asset_class.value] = []
+                
+                grouped_data[result.asset_class.value].append({
+                    'symbol': result.symbol,
+                    'price': result.price,
+                    'change': result.change if hasattr(result, 'change') else 0.0,
+                    'volume': result.volume,
+                    'timestamp': result.timestamp.isoformat(),
+                    'high': result.high_price,
+                    'low': result.low_price,
+                    'open': result.open_price,
+                    'close': result.close_price
+                })
+            
+            return grouped_data
 
     def get_recent_fed_speeches(self, days: int = 7) -> List[FedSpeech]:
         """Get recent Fed communications"""
@@ -235,6 +254,16 @@ class DatabaseManager:
             cutoff = datetime.now() - timedelta(days=lookback_days)
             return session.query(EconomicRelease)\
                 .filter(EconomicRelease.timestamp >= cutoff)\
+                .order_by(desc(EconomicRelease.timestamp))\
+                .all()
+    
+    def get_latest_economic_data_by_indicator(self, indicator: str, lookback_days: int = 30) -> List[EconomicRelease]:
+        """Get latest economic data for specific indicator"""
+        with self.get_session() as session:
+            cutoff = datetime.now() - timedelta(days=lookback_days)
+            return session.query(EconomicRelease)\
+                .filter(EconomicRelease.indicator == indicator,
+                    EconomicRelease.timestamp >= cutoff)\
                 .order_by(desc(EconomicRelease.timestamp))\
                 .all()
 

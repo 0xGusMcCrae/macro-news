@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 import pytz
 from typing import Dict, Any
 import os
@@ -18,6 +18,7 @@ from analyzers.fed_analysis import FedAnalyzer
 from analyzers.release_analysis import ReleaseAnalyzer
 from database.manager import DatabaseManager
 from notifiers.email_service import EmailNotifier
+from notifiers.market_newsletter import MarketNewsletterComposer
 from utils.logger import setup_logger
 
 class MarketMonitor:
@@ -33,8 +34,9 @@ class MarketMonitor:
         
         # Initialize components
         self.db = DatabaseManager(DATABASE_CONFIG['sqlite']['path'])
-        self.email_notifier = EmailNotifier(EMAIL_CONFIG)
-        
+        self.newsletter_composer = MarketNewsletterComposer(API_KEYS)
+        self.email_notifier = EmailNotifier(EMAIL_CONFIG, self.newsletter_composer)
+            
         # Initialize collectors
         self.market_collector = MarketDataCollector(API_KEYS)
         self.economic_collector = EconomicDataCollector(API_KEYS)
@@ -42,12 +44,19 @@ class MarketMonitor:
         self.bond_collector = BondCollector(API_KEYS)
         
         # Initialize analyzers
-        self.market_analyzer = MarketAnalyzer({})
+        self.market_analyzer = MarketAnalyzer(API_KEYS)
         self.fed_analyzer = FedAnalyzer(API_KEYS)
-        self.release_analyzer = ReleaseAnalyzer({})
+        self.release_analyzer = ReleaseAnalyzer(API_KEYS)
         
         # Track last update times
         self.last_updates = {}
+
+        self.daily_events = {
+            'market_events': [],
+            'economic_releases': [],
+            'fed_communications': [],
+            'system_events': []  # For internal logging only
+        }
 
     async def run(self):
         """Main application loop"""
@@ -111,11 +120,6 @@ class MarketMonitor:
             
         except Exception as e:
             self.logger.error(f"Error collecting market data: {str(e)}")
-            await self.email_notifier.send_alert(
-                'market_data_error',
-                f"Failed to collect market data: {str(e)}",
-                importance='high'
-            )
 
     async def check_economic_releases(self):
         """Check for and process new economic releases"""
@@ -135,16 +139,15 @@ class MarketMonitor:
                             await self._get_market_context()
                         )
                         
-                        # Send alert if high importance
                         if release.get('importance') == 'high':
-                            await self.email_notifier.send_alert(
-                                'economic_release',
-                                f"New {release['indicator']} release",
-                                data={
-                                    'release': release,
-                                    'analysis': analysis
-                                }
-                            )
+                            self.daily_events['economic_releases'].append({
+                                'timestamp': datetime.utcnow(),
+                                'indicator': release['indicator'],
+                                'value': release['value'],
+                                'expected': release.get('expected'),
+                                'previous': release['previous'],
+                                'analysis': analysis
+                            })
                 
                 self.last_updates['economic_data'] = datetime.utcnow()
                 
@@ -172,14 +175,12 @@ class MarketMonitor:
                         
                         # Send alert for important speeches
                         if speech.get('importance', 'low') in ['high', 'medium']:
-                            await self.email_notifier.send_alert(
-                                'fed_speech',
-                                f"New Fed speech by {speech['speaker']}",
-                                data={
-                                    'speech': speech,
-                                    'analysis': analysis
-                                }
-                            )
+                            self.daily_events['fed_communications'].append({
+                                'timestamp': datetime.utcnow(),
+                                'speaker': speech['speaker'],
+                                'title': speech['title'],
+                                'analysis': analysis
+                            })
                 
                 self.last_updates['fed_speeches'] = datetime.utcnow()
                 
@@ -201,13 +202,25 @@ class MarketMonitor:
                 market_data = await self._get_market_context()
                 economic_data = await self._get_economic_context()
                 fed_analysis = await self._get_fed_context()
-                
+
+                economic_data['significant_releases'] = self.daily_events['economic_releases']
+                fed_analysis['significant_communications'] = self.daily_events['fed_communications']
+                                
                 # Send update
+                self.logger.info("Sending daily update")
                 await self.email_notifier.send_daily_update(
                     market_data,
                     economic_data,
                     fed_analysis
                 )
+
+                # Clear daily events after sending
+                self.daily_events = {
+                    'market_events': [],
+                    'economic_releases': [],
+                    'fed_communications': [],
+                    'system_events': []
+                }
                 
                 self.last_updates['daily_update'] = datetime.utcnow()
                 
@@ -234,30 +247,53 @@ class MarketMonitor:
         """Get current market context"""
         try:
             # Get recent market data
+            start_date = datetime.utcnow() - timedelta(days=1)
+            end_date = datetime.utcnow()
+            
+            # Get market data for all symbols
             market_data = self.db.get_market_data(
-                start_date=datetime.utcnow() - timedelta(days=1),
-                end_date=datetime.utcnow()
+                start_date=start_date,
+                end_date=end_date
             )
             
             # Get recent bond data
             bond_data = self.db.get_bond_data(
-                start_date=datetime.utcnow() - timedelta(days=1),
-                end_date=datetime.utcnow()
+                start_date=start_date,
+                end_date=end_date
             )
             
             # Get latest market regime
-            regime = self.db.get_latest_market_regime()
+            latest_regime = self.db.get_latest_market_regime()
             
+            # Structure the data to match template expectations
             return {
-                'market_data': market_data,
-                'bond_data': bond_data,
-                'regime': regime,
+                'data': {
+                    **market_data,  # This will include all asset classes
+                    'bonds': bond_data
+                },
+                'regime': {
+                    'risk_environment': latest_regime.risk_environment if latest_regime else 'neutral',
+                    'volatility_regime': latest_regime.volatility_regime if latest_regime else 'normal',
+                    'liquidity_conditions': latest_regime.liquidity_conditions if latest_regime else 'normal',
+                    'correlation_regime': latest_regime.correlation_regime if latest_regime else 'normal'
+                },
+                'trends': latest_regime.dominant_factors if latest_regime else [],
                 'timestamp': datetime.utcnow()
             }
-            
+                
         except Exception as e:
             self.logger.error(f"Error getting market context: {str(e)}")
-            return {}
+            return {
+                'data': {},
+                'regime': {
+                    'risk_environment': 'unknown',
+                    'volatility_regime': 'unknown',
+                    'liquidity_conditions': 'unknown',
+                    'correlation_regime': 'unknown'
+                },
+                'trends': [],
+                'timestamp': datetime.utcnow()
+            }
 
     async def _get_economic_context(self) -> Dict[str, Any]:
         """Get economic data context"""

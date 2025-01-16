@@ -23,7 +23,7 @@ class FedAnalyzer:
     """Analyzes Federal Reserve communications"""
 
     def __init__(self, config: Dict[str, str]):
-        self.client = anthropic.Client(api_key=config['anthropic_key'])
+        self.client = anthropic.Client(api_key=config['anthropic'])
         self.market_context = {}
         self.prior_communications = []
 

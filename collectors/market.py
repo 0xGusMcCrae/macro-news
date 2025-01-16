@@ -41,23 +41,34 @@ class MarketDataCollector(BaseCollector):
     async def collect(self) -> CollectorResponse:
         """Collect market data across all asset classes"""
         try:
-            # Collect market data for each asset class
             market_data = {}
             
             for asset_class, symbols in self.market_symbols.items():
+                logger.info(f"Collecting data for asset class: {asset_class}")
                 market_data[asset_class] = {}
                 for symbol_name, yf_symbol in symbols.items():
                     try:
+                        logger.info(f"Attempting to collect data for {symbol_name} ({yf_symbol})")
                         data = await self._get_market_data(yf_symbol)
                         if data:
                             market_data[asset_class][symbol_name] = data
+                        else:
+                            logger.warning(f"No data returned for {symbol_name}")
                     except Exception as e:
-                        logger.error(f"Error collecting data for {symbol_name}: {str(e)}")
+                        logger.error(f"Error collecting data for {symbol_name}: {str(e)}", exc_info=True)
+                        continue
             
-            # Collect bond data
-            bond_response = await self.bond_collector.collect()
-            if bond_response.success:
-                market_data['bonds'] = bond_response.data
+            # Only attempt bond collection if we have some market data
+            if any(market_data.values()):
+                bond_response = await self.bond_collector.collect()
+                if bond_response.success:
+                    market_data['bonds'] = bond_response.data
+            
+            if not market_data:
+                return CollectorResponse(
+                    success=False,
+                    error="No market data could be collected"
+                )
             
             return CollectorResponse(
                 success=True,
@@ -79,28 +90,31 @@ class MarketDataCollector(BaseCollector):
         """Get market data for a specific symbol"""
         try:
             ticker = yf.Ticker(symbol)
+            hist = ticker.history(period='5d')
             
-            # Get historical data for 2 days to calculate changes
-            hist = ticker.history(period='2d')
-            if hist.empty:
-                logger.warning(f"No data available for {symbol}")
+            if hist.empty or len(hist) < 2:  # Need at least 2 days of data
+                logger.warning(f"Insufficient data available for {symbol}")
                 return None
 
-            current_price = float(hist['Close'].iloc[-1])
-            previous_close = float(hist['Close'].iloc[-2])
-            
-            return {
-                'symbol': symbol,
-                'price': current_price,
-                'change': ((current_price / previous_close) - 1) * 100,
-                'volume': float(hist['Volume'].iloc[-1]),
-                'high': float(hist['High'].iloc[-1]),
-                'low': float(hist['Low'].iloc[-1]),
-                'open': float(hist['Open'].iloc[-1]),
-                'previous_close': previous_close,
-                'timestamp': hist.index[-1].isoformat(),
-                'additional_info': self._extract_relevant_info(ticker.info)
-            }
+            try:
+                current_price = float(hist['Close'].iloc[-1])
+                previous_close = float(hist['Close'].iloc[-2])
+                volume = float(hist['Volume'].iloc[-1]) if 'Volume' in hist else 0.0
+                
+                return {
+                    'symbol': symbol,
+                    'price': current_price,
+                    'change': ((current_price / previous_close) - 1) * 100,
+                    'volume': volume,
+                    'high': float(hist['High'].iloc[-1]),
+                    'low': float(hist['Low'].iloc[-1]),
+                    'open': float(hist['Open'].iloc[-1]),
+                    'previous_close': previous_close,
+                    'timestamp': hist.index[-1].isoformat()
+                }
+            except (IndexError, KeyError) as e:
+                logger.error(f"Error processing data for {symbol}: {str(e)}")
+                return None
 
         except Exception as e:
             logger.error(f"Error fetching data for {symbol}: {str(e)}")
@@ -164,17 +178,18 @@ class MarketDataCollector(BaseCollector):
         if not isinstance(data, dict):
             return False
             
-        # Check if we have data for each asset class
-        required_asset_classes = {'indices', 'fx', 'commodities'}
-        if not all(asset_class in data for asset_class in required_asset_classes):
+        # Check if we have at least some asset class data
+        if not data:
             return False
-            
-        # Check if key instruments have required fields
-        required_fields = {'price', 'volume', 'timestamp'}
+        
+        # Check required fields when data exists
+        required_fields = {'price', 'timestamp'}
         
         for asset_class, instruments in data.items():
-            for instrument, instrument_data in instruments.items():
-                if not instrument_data:  # Skip if None
+            if not instruments:  # Skip empty asset classes
+                continue
+            for instrument_data in instruments.values():
+                if not instrument_data:  # Skip None values
                     continue
                 if not all(field in instrument_data for field in required_fields):
                     return False

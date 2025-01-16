@@ -10,8 +10,8 @@ class EconomicDataCollector(BaseCollector):
 
     def __init__(self, config: Dict[str, str]):
         super().__init__(config)
-        self.fred_api_key = config['fred_api_key']
-        self.bls_api_key = config['bls_api_key']
+        self.fred_api_key = config['fred']
+        self.bls_api_key = config['bls']
         self.release_calendar = self._load_release_calendar()
 
     async def collect(self) -> CollectorResponse:
