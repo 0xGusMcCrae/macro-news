@@ -1,0 +1,17 @@
+[Unit]
+Description=Market Monitor Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu  # Or whatever user you're running it as
+WorkingDirectory=/home/ubuntu/market-monitor  # Adjust path to your app directory
+Environment=PYTHONPATH=/home/ubuntu/market-monitor
+ExecStart=/usr/bin/python3 main.py
+Restart=always
+RestartSec=10
+StandardOutput=append:/var/log/market_monitor/output.log
+StandardError=append:/var/log/market_monitor/error.log
+
+[Install]
+WantedBy=multi-user.target
