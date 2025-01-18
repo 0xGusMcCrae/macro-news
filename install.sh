@@ -17,25 +17,19 @@ echo "Installing for user: $ACTUAL_USER"
 
 # Get the directory where the install script is located (project root)
 PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-echo "Installing from: $PROJECT_ROOT"
+echo "Installing in: $PROJECT_ROOT"
 
-# Base directory where the application will live
-APP_DIR="/home/$ACTUAL_USER/market-monitor"
+# Use the existing directory structure
+APP_DIR=$PROJECT_ROOT
 DATA_DIR="$APP_DIR/data"
 LOG_DIR="$APP_DIR/logs"
 VENV_DIR="$APP_DIR/venv"
 
-# Create application directories
+# Create necessary directories
 echo "Creating application directories..."
 mkdir -p $DATA_DIR
 mkdir -p $LOG_DIR
 mkdir -p /var/log/market_monitor
-
-# Copy project files if not already in destination
-if [ "$PROJECT_ROOT" != "$APP_DIR" ]; then
-    echo "Copying project files to $APP_DIR..."
-    cp -r $PROJECT_ROOT/* $APP_DIR/
-fi
 
 # Set up Python virtual environment
 echo "Setting up Python virtual environment..."
