@@ -3,6 +3,9 @@ import aiohttp
 import pandas as pd
 from typing import Any, Dict, List, Optional
 import asyncio
+import calendar
+import json
+from pathlib import Path
 from .base import BaseCollector, CollectorResponse
 
 class EconomicDataCollector(BaseCollector):
@@ -123,21 +126,9 @@ class EconomicDataCollector(BaseCollector):
         return all(field in data for field in required_fields)
 
     def _load_release_calendar(self) -> Dict:
-        """Load economic release calendar"""
-        # This would typically load from a configuration file or database
-        # For now, returning a sample calendar structure
-        return {
-            'NFP': {
-                'id': 'NFP',
-                'name': 'Nonfarm Payrolls',
-                'source': 'BLS',
-                'series_id': 'CEU0000000001',
-                'release_pattern': '1st friday',
-                'release_time': '8:30',
-                'importance': 'high'
-            },
-            # Add other releases...
-        }
+        calendar_path = Path(__file__).parent.parent / 'config' / 'economic_calendar.json'
+        with open(calendar_path) as f:
+            return json.load(f)
 
     def _get_todays_releases(self) -> List[Dict]:
         """Get today's scheduled releases"""
@@ -152,7 +143,56 @@ class EconomicDataCollector(BaseCollector):
 
     def _is_release_day(self, date: datetime, pattern: str) -> bool:
         """Check if given date matches release pattern"""
-        # Example patterns: '1st friday', 'last thursday', '15th', etc.
-        # Implementation would check if date matches the pattern
-        # This would need more sophisticated logic in production
-        return True  # Placeholder
+        current_day = date.strftime('%A').lower()
+        current_month_day = date.day
+        
+        if pattern == 'thursday':
+            return current_day == 'thursday'
+            
+        elif pattern == '1st friday':
+            return current_day == 'friday' and 1 <= current_month_day <= 7
+            
+        elif pattern == '2nd week wednesday':
+            return current_day == 'wednesday' and 8 <= current_month_day <= 14
+            
+        elif pattern == 'mid-month':
+            return 13 <= current_month_day <= 17
+            
+        elif pattern == 'end-month':
+            last_day = calendar.monthrange(date.year, date.month)[1]
+            return current_month_day >= last_day - 3
+            
+        elif pattern == 'quarterly':
+            return date.month in [1, 4, 7, 10] and 25 <= current_month_day <= 30
+            
+        elif pattern == '1st week':
+            return 1 <= current_month_day <= 7
+            
+        elif pattern == '2nd_friday':
+            return current_day == 'friday' and 8 <= current_month_day <= 14
+            
+        elif pattern == '3rd week':
+            return 15 <= current_month_day <= 21
+            
+        elif pattern == 'last_tuesday':
+            last_day = calendar.monthrange(date.year, date.month)[1]
+            last_tuesday = last_day - ((last_day - 2) % 7)
+            return current_month_day == last_tuesday
+            
+        elif pattern == '1st_business_day':
+            return current_month_day == 1 and current_day not in ['saturday', 'sunday']
+            
+        elif pattern == '3rd_business_day':
+            return current_month_day == 3 and current_day not in ['saturday', 'sunday']
+            
+        elif pattern == 'wed_before_nfp':
+            return current_day == 'wednesday' and 1 <= current_month_day <= 7
+            
+        elif pattern == 'fomc_schedule':
+            fomc_dates = [
+                '2024-01-30', '2024-03-19', '2024-04-30', '2024-06-11',
+                '2024-07-30', '2024-09-17', '2024-11-06', '2024-12-17'
+            ]
+            return date.strftime('%Y-%m-%d') in fomc_dates
+        
+        return False

@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 import pytz
 from typing import Dict, Any
 import os
@@ -110,13 +110,13 @@ class MarketMonitor:
             
             # Store analysis
             self.db.store_analysis({
-                'timestamp': datetime.utcnow(),
+                'timestamp': datetime.now(timezone.utc),
                 'type': 'market',
                 'content': analysis
             })
             
             # Update last collection time
-            self.last_updates['market_data'] = datetime.utcnow()
+            self.last_updates['market_data'] = datetime.now(timezone.utc)
             
         except Exception as e:
             self.logger.error(f"Error collecting market data: {str(e)}")
@@ -141,7 +141,7 @@ class MarketMonitor:
                         
                         if release.get('importance') == 'high':
                             self.daily_events['economic_releases'].append({
-                                'timestamp': datetime.utcnow(),
+                                'timestamp': datetime.now(timezone.utc),
                                 'indicator': release['indicator'],
                                 'value': release['value'],
                                 'expected': release.get('expected'),
@@ -149,7 +149,7 @@ class MarketMonitor:
                                 'analysis': analysis
                             })
                 
-                self.last_updates['economic_data'] = datetime.utcnow()
+                self.last_updates['economic_data'] = datetime.now(timezone.utc)
                 
         except Exception as e:
             self.logger.error(f"Error processing economic releases: {str(e)}")
@@ -176,13 +176,13 @@ class MarketMonitor:
                         # Send alert for important speeches
                         if speech.get('importance', 'low') in ['high', 'medium']:
                             self.daily_events['fed_communications'].append({
-                                'timestamp': datetime.utcnow(),
+                                'timestamp': datetime.now(timezone.utc),
                                 'speaker': speech['speaker'],
                                 'title': speech['title'],
                                 'analysis': analysis
                             })
                 
-                self.last_updates['fed_speeches'] = datetime.utcnow()
+                self.last_updates['fed_speeches'] = datetime.now(timezone.utc)
                 
         except Exception as e:
             self.logger.error(f"Error processing Fed communications: {str(e)}")
@@ -222,7 +222,7 @@ class MarketMonitor:
                     'system_events': []
                 }
                 
-                self.last_updates['daily_update'] = datetime.utcnow()
+                self.last_updates['daily_update'] = datetime.now(timezone.utc)
                 
             except Exception as e:
                 self.logger.error(f"Error sending daily update: {str(e)}")
@@ -232,7 +232,7 @@ class MarketMonitor:
         if data_type not in self.last_updates:
             return True
             
-        elapsed = datetime.utcnow() - self.last_updates[data_type]
+        elapsed = datetime.now(timezone.utc) - self.last_updates[data_type]
         return elapsed.total_seconds() >= COLLECTION_CONFIG['update_frequency'][data_type]
 
     def _sent_daily_update_today(self) -> bool:
@@ -241,14 +241,14 @@ class MarketMonitor:
             return False
             
         last_update = self.last_updates['daily_update']
-        return last_update.date() == datetime.utcnow().date()
+        return last_update.date() == datetime.now(timezone.utc).date()
 
     async def _get_market_context(self) -> Dict[str, Any]:
         """Get current market context"""
         try:
             # Get recent market data
-            start_date = datetime.utcnow() - timedelta(days=1)
-            end_date = datetime.utcnow()
+            start_date = datetime.now(timezone.utc) - timedelta(days=1)
+            end_date = datetime.now(timezone.utc)
             
             # Get market data for all symbols
             market_data = self.db.get_market_data(
@@ -278,7 +278,7 @@ class MarketMonitor:
                     'correlation_regime': latest_regime.correlation_regime if latest_regime else 'normal'
                 },
                 'trends': latest_regime.dominant_factors if latest_regime else [],
-                'timestamp': datetime.utcnow()
+                'timestamp': datetime.now(timezone.utc)
             }
                 
         except Exception as e:
@@ -292,7 +292,7 @@ class MarketMonitor:
                     'correlation_regime': 'unknown'
                 },
                 'trends': [],
-                'timestamp': datetime.utcnow()
+                'timestamp': datetime.now(timezone.utc)
             }
 
     async def _get_economic_context(self) -> Dict[str, Any]:
@@ -329,7 +329,7 @@ class MarketMonitor:
             return {
                 'releases': grouped_releases,
                 'analyses': analyses,
-                'timestamp': datetime.utcnow()
+                'timestamp': datetime.now(timezone.utc)
             }
             
         except Exception as e:
@@ -366,7 +366,7 @@ class MarketMonitor:
                 'fomc_info': fomc_info,
                 'analyses': analyses,
                 'policy_signals': policy_signals,
-                'timestamp': datetime.utcnow()
+                'timestamp': datetime.now(timezone.utc)
             }
             
         except Exception as e:
@@ -378,8 +378,8 @@ class MarketMonitor:
         try:
             # Get historical market data
             market_history = self.db.get_market_data(
-                start_date=datetime.utcnow() - timedelta(days=252),  # 1 trading year
-                end_date=datetime.utcnow()
+                start_date=datetime.now(timezone.utc) - timedelta(days=252),  # 1 trading year
+                end_date=datetime.now(timezone.utc)
             )
             
             # Get historical economic releases
@@ -396,7 +396,7 @@ class MarketMonitor:
             
             # Get historical regimes
             regimes = self.db.get_market_regimes(
-                start_date=datetime.utcnow() - timedelta(days=365)
+                start_date=datetime.now(timezone.utc) - timedelta(days=365)
             )
             
             return {
@@ -404,7 +404,7 @@ class MarketMonitor:
                 'economic_history': economic_history,
                 'historical_volatility': volatility,
                 'market_regimes': regimes,
-                'timestamp': datetime.utcnow()
+                'timestamp': datetime.now(timezone.utc)
             }
             
         except Exception as e:
