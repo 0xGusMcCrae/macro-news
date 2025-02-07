@@ -1,416 +1,252 @@
+from datetime import datetime, time, timedelta
 import asyncio
-import logging
-from datetime import datetime, time, timedelta, timezone
-import pytz
-from typing import Dict, Any
+import openai
+import anthropic
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 import os
-from pathlib import Path
+from dotenv import load_dotenv
+import logging
+import pytz
 
-# Internal imports
-from config.settings import (API_KEYS, DATABASE_CONFIG, EMAIL_CONFIG,
-                           COLLECTION_CONFIG, LOGGING_CONFIG)
-from collectors.market import MarketDataCollector
-from collectors.economic import EconomicDataCollector
-from collectors.fed_speech import FedSpeechCollector
-from collectors.bond import BondCollector
-from analyzers.market_analysis import MarketAnalyzer
-from analyzers.fed_analysis import FedAnalyzer
-from analyzers.release_analysis import ReleaseAnalyzer
-from database.manager import DatabaseManager
-from notifiers.email_service import EmailNotifier
-from notifiers.market_newsletter import MarketNewsletterComposer
-from utils.logger import setup_logger
+# Load environment variables
+load_dotenv()
 
-class MarketMonitor:
-    """Main application class coordinating all components"""
-    
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('macro_bot.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+class MacroBot:
     def __init__(self):
-        # Set up logging
-        self.logger = setup_logger(
-            'market_monitor',
-            log_file='logs/market_monitor.log',
-            level=logging.INFO
+        self.perplexity_client = openai.OpenAI(
+            api_key=os.getenv('PERPLEXITY_API_KEY'),
+            base_url="https://api.perplexity.ai"
         )
+        self.claude_client = anthropic.Client(api_key=os.getenv('ANTHROPIC_API_KEY'))
         
-        # Initialize components
-        self.db = DatabaseManager(DATABASE_CONFIG['sqlite']['path'])
-        self.newsletter_composer = MarketNewsletterComposer(API_KEYS)
-        self.email_notifier = EmailNotifier(EMAIL_CONFIG, self.newsletter_composer)
-            
-        # Initialize collectors
-        self.market_collector = MarketDataCollector(API_KEYS)
-        self.economic_collector = EconomicDataCollector(API_KEYS)
-        self.fed_collector = FedSpeechCollector(API_KEYS)
-        self.bond_collector = BondCollector(API_KEYS)
-        
-        # Initialize analyzers
-        self.market_analyzer = MarketAnalyzer(API_KEYS)
-        self.fed_analyzer = FedAnalyzer(API_KEYS)
-        self.release_analyzer = ReleaseAnalyzer(API_KEYS)
-        
-        # Track last update times
-        self.last_updates = {}
+        # Email settings
+        self.smtp_server = os.getenv('SMTP_SERVER')
+        self.smtp_port = int(os.getenv('SMTP_PORT'))
+        self.sender_email = os.getenv('SENDER_EMAIL')
+        self.sender_password = os.getenv('SENDER_PASSWORD')
+        self.recipient_email = os.getenv('RECIPIENT_EMAIL')
 
-        self.daily_events = {
-            'market_events': [],
-            'economic_releases': [],
-            'fed_communications': [],
-            'system_events': []  # For internal logging only
-        }
+    async def get_macro_events(self):
+        """Query Perplexity for recent macro events"""
+        try:
+            response = self.perplexity_client.chat.completions.create(
+                model="sonar-pro",
+                messages=[{
+                    "role": "user",
+                    "content": """Provide a detailed summary of significant U.S. economic data releases 
+                    and important market events from the last 24 hours. Focus ONLY on:
+
+                    1. Key U.S. economic data releases (like NFP, CPI, PCE, GDP, Unemployment Rate, Wage Growth, etc.) with:
+                       - Actual numbers
+                       - Expected numbers
+                       - Previous numbers
+                       - Any notable components or sub-indices
+
+                    2. Federal Reserve communications or policy changes
+
+                    3. Major Chinese economic data or significant policy changes
+
+                    4. Market-critical earnings (limited to mega-cap tech or other companies that 
+                       can move the broader market)
+
+                    Exclude:
+                    - Other countries' central bank decisions
+                    - Regular corporate earnings
+                    - Minor economic data
+                    - Market index movements unless truly exceptional
+
+                    Format in clear, structured text with actual numbers and comparisons. Be sure to include the raw economic data in your response.
+                    
+                    Use the following as an example:
+                    '1. Key U.S. Economic Data Releases
+                    * Non-Farm Payrolls (NFP) for January 2025:
+                    * Actual: 143,000 jobs added
+                    * Expected: 169,000 jobs
+                    * Previous: (Revised) 150,000 jobs
+                    * Unemployment Rate: Decreased to 4.0% from the previous 4.1%
+                    * Average Hourly Earnings: Increased by 0.5% month-over-month; 4.1% year-over-year
+                    * Notable Sectors:
+                        * Healthcare: Strong job growth
+                        * Retail: Positive gains
+                        * Government: Increased employment
+                        * Mining: Decline in jobs
+                    2. Federal Reserve Communications or Policy Changes
+                    * Chicago Fed President Austan Goolsbee: Emphasized a cautious approach to interest rate cuts due to uncertainties from recent policy changes, despite favorable economic indicators.
+                    reuters.com
+
+                    Dallas Fed President Lorie Logan: Indicated a preference to maintain current interest rates for an extended period, even if inflation approaches the 2% target, citing the need for a cooling labor market before considering rate reductions.
+                    marketwatch.com
+
+                    Fed Vice Chair Philip Jefferson: Expressed contentment with the current restrictive monetary policy stance and advocated for patience to assess the impacts of recent administrative policies before making further adjustments.
+                    reuters.com
+
+                    3. Major Chinese Economic Data or Significant Policy Changes
+                    * Trade Tariffs: China imposed a 10% tariff on U.S. crude oil imports in response to U.S. tariffs, potentially reducing U.S. crude exports to China in 2025.
+                    reuters.com
+                    4. Market-Critical Earnings
+                    * Amazon (AMZN):
+                    * Q4 2024 Results:
+                        * Earnings Per Share (EPS): $1.86
+                        * Revenue: $187.8 billion
+                        * Analyst Expectations: EPS of $1.80; Revenue of $187.3 billion
+                    * Q1 2025 Guidance:
+                        * Revenue Forecast: $153.3 billion
+                        * Operating Income Forecast: $16 billion
+                        * Analyst Expectations: Revenue of $158.6 billion; Operating Income of $18.4 billion
+                    * Notable Segment:
+                        * Amazon Web Services (AWS): Revenue of $28.79 billion, slightly below expectations but a 19% year-over-year increase.
+                    * Market Reaction: Stock declined over 5% in after-hours trading due to the conservative guidance.'"""
+                }]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Error getting macro events: {e}")
+            return None
+
+    async def analyze_events(self, events_text):
+        """Have Claude analyze the macro events"""
+        try:
+            response = self.claude_client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=4000,
+                temperature=0.3,
+                messages=[{
+                    "role": "user",
+                    "content": f"""As a market analyst, analyze these economic events and their implications:
+
+                    {events_text}
+
+                    Provide a comprehensive analysis including:
+                    1. Economic data
+                    2. Key takeaways and market impact
+                    3. Implications for Fed policy and rate expectations
+                    4. Effects on different asset classes
+                    5. Changes to the macro narrative
+                    
+                    Format your response in clear HTML with proper structure using h1, h2, p tags etc.
+                    
+                    Use the following as an example: 
+                    'Economic Analysis Report - February 2025
+                    1. Key Takeaways and Market Impact
+                    Labor Market Analysis
+                    The January 2025 jobs report reveals a moderating but still resilient labor market. The lower-than-expected NFP (143,000 vs 169,000) combined with the unemployment rate decrease to 4.0% suggests a "soft landing" scenario is still feasible. However, the 0.5% monthly wage growth indicates persistent wage pressures that could complicate the Fed's inflation targeting efforts.
+
+                    Sectoral Shifts
+                    The continued strength in healthcare and retail employment, coupled with government sector expansion, indicates broad-based labor market resilience. The decline in mining sector jobs might signal some weakness in commodity-related industries, potentially linked to global demand concerns.
+
+                    Corporate Performance
+                    Amazon's Q4 2024 results exceeded expectations, but the conservative Q1 2025 guidance suggests corporate caution about near-term growth prospects. The AWS segment's performance indicates continued but moderating cloud computing growth, reflecting broader enterprise IT spending patterns.
+
+                    2. Implications for Fed Policy and Rate Expectations
+                    The unified messaging from Fed officials (Goolsbee, Logan, and Jefferson) suggests a higher-for-longer interest rate environment, despite market expectations for early rate cuts. Key factors influencing this stance include:
+
+                    Persistent wage growth at 4.1% YoY, significantly above levels consistent with 2% inflation
+                    Labor market resilience as evidenced by the declining unemployment rate
+                    Need to assess the full impact of previous policy tightening
+                    Market expectations for rate cuts may need to be adjusted, with the likelihood of cuts being pushed further into 2025.
+
+                    3. Effects on Asset Classes
+                    Equities
+                    The mixed economic signals and hawkish Fed stance could lead to increased market volatility. Growth stocks, particularly in the technology sector, may face pressure due to the higher-for-longer rate environment. Value stocks, especially in healthcare and consumer staples, might outperform.
+
+                    Fixed Income
+                    Bond yields likely to remain elevated, with the yield curve potentially steepening if market participants push back rate cut expectations. Credit spreads might widen modestly as corporate guidance remains conservative.
+
+                    Commodities
+                    The new Chinese tariffs on U.S. crude oil could reshape global energy trade flows and potentially pressure U.S. oil prices. This development, combined with mining sector job losses, suggests potential headwinds for commodity markets.
+
+                    4. Changes to the Macro Narrative
+                    The current data is shifting the macro narrative in several key ways:
+
+                    The "soft landing" scenario remains possible but requires threading an increasingly narrow needle between labor market strength and inflation control
+                    U.S.-China trade tensions are evolving beyond tariffs to include strategic commodities, potentially creating new inflationary pressures
+                    Corporate conservatism, as evidenced by Amazon's guidance, suggests businesses are preparing for a period of moderate growth rather than sharp contraction
+                    These developments suggest a complex economic environment in 2025, characterized by resilient but moderating growth, persistent inflation pressures, and evolving global trade dynamics.'"""
+                }]
+            )
+            return response.content[0].text
+        except Exception as e:
+            logger.error(f"Error analyzing events: {e}")
+            return None
+
+    async def send_email(self, subject, html_content):
+        """Send email with analysis"""
+        try:
+            msg = MIMEMultipart()
+            msg['Subject'] = subject
+            msg['From'] = self.sender_email
+            msg['To'] = self.recipient_email
+            msg.attach(MIMEText(html_content, 'html'))
+
+            with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
+                server.starttls()
+                server.login(self.sender_email, self.sender_password)
+                server.send_message(msg)
+                
+            logger.info("Email sent successfully")
+        except Exception as e:
+            logger.error(f"Error sending email: {e}")
+
+    async def run_daily_update(self):
+        """Run the daily macro update process"""
+        logger.info("Starting daily update")
+        events = await self.get_macro_events()
+        if events:
+            logger.info("Got macro events, analyzing...")
+            analysis = await self.analyze_events(events)
+            if analysis:
+                subject = f"Daily Macro Update - {datetime.now().strftime('%Y-%m-%d')}"
+                logger.info("Analysis complete, sending email...")
+                await self.send_email(subject, analysis)
+                logger.info("Daily update complete")
+            else:
+                logger.error("Failed to get analysis from Claude")
+        else:
+            logger.error("Failed to get events from ChatGPT")
 
     async def run(self):
-        """Main application loop"""
-        self.logger.info("Starting Market Monitor")
-        
+        """Main loop - run daily at 9am ET"""
+        logger.info("Starting MacroBot")
         while True:
             try:
-                await self.check_market_hours()
-                await self.check_economic_releases()
-                await self.check_fed_communications()
-                await self.send_daily_update()
+                now = datetime.now(pytz.timezone('America/New_York'))
+                target_time = time(12, 53)  # 9:00 AM ET
                 
-                # Sleep for main loop interval
-                await asyncio.sleep(60)  # Check every minute
-                
-            except Exception as e:
-                self.logger.error(f"Error in main loop: {str(e)}")
-                await asyncio.sleep(60)  # Wait before retrying
+                # If it's past 9am, wait until tomorrow
+                if now.time() >= target_time:
+                    tomorrow = now.date() + timedelta(days=1)
+                    next_run = datetime.combine(tomorrow, target_time)
+                    next_run = pytz.timezone('America/New_York').localize(next_run)
+                else:
+                    next_run = datetime.combine(now.date(), target_time)
+                    next_run = pytz.timezone('America/New_York').localize(next_run)
 
-    async def check_market_hours(self):
-        """Check if markets are open and collect data if needed"""
-        ny_tz = pytz.timezone('America/New_York')
-        now = datetime.now(ny_tz)
-        
-        # Check if it's a weekday and market hours (9:30 AM - 4:00 PM ET)
-        if (now.weekday() < 5 and
-            time(9, 30) <= now.time() <= time(16, 0)):
-            
-            # Check if we need to update market data
-            if self._should_update('market_data'):
-                await self.collect_market_data()
-
-    async def collect_market_data(self):
-        """Collect and analyze market data"""
-        try:
-            # Collect data
-            market_data = await self.market_collector.collect()
-            bond_data = await self.bond_collector.collect()
-            
-            # Store in database
-            if market_data.success:
-                self.db.store_market_data(market_data.data)
-            if bond_data.success:
-                self.db.store_bond_data(bond_data.data)
-            
-            # Analyze market conditions
-            analysis = await self.market_analyzer.analyze_market_conditions(
-                market_data.data if market_data.success else {},
-                bond_data.data if bond_data.success else {}
-            )
-            
-            # Store analysis
-            self.db.store_analysis({
-                'timestamp': datetime.now(timezone.utc),
-                'type': 'market',
-                'content': analysis
-            })
-            
-            # Update last collection time
-            self.last_updates['market_data'] = datetime.now(timezone.utc)
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting market data: {str(e)}")
-
-    async def check_economic_releases(self):
-        """Check for and process new economic releases"""
-        try:
-            if self._should_update('economic_data'):
-                releases = await self.economic_collector.collect()
+                # Sleep until next run time
+                sleep_seconds = (next_run - now).total_seconds()
+                logger.info(f"Sleeping until {next_run}")
+                await asyncio.sleep(sleep_seconds)
                 
-                if releases.success and releases.data:
-                    for release in releases.data:
-                        # Store release
-                        self.db.store_economic_release(release)
-                        
-                        # Analyze release
-                        analysis = await self.release_analyzer.analyze_release(
-                            release,
-                            await self._get_historical_context(),
-                            await self._get_market_context()
-                        )
-                        
-                        if release.get('importance') == 'high':
-                            self.daily_events['economic_releases'].append({
-                                'timestamp': datetime.now(timezone.utc),
-                                'indicator': release['indicator'],
-                                'value': release['value'],
-                                'expected': release.get('expected'),
-                                'previous': release['previous'],
-                                'analysis': analysis
-                            })
-                
-                self.last_updates['economic_data'] = datetime.now(timezone.utc)
-                
-        except Exception as e:
-            self.logger.error(f"Error processing economic releases: {str(e)}")
-
-    async def check_fed_communications(self):
-        """Check for and process new Fed communications"""
-        try:
-            if self._should_update('fed_speeches'):
-                speeches = await self.fed_collector.collect()
-                
-                if speeches.success and speeches.data:
-                    for speech in speeches.data:
-                        # Store speech
-                        self.db.store_fed_speech(speech)
-                        
-                        # Analyze speech
-                        analysis = await self.fed_analyzer.analyze_speech(
-                            speech['content'],
-                            speech['speaker'],
-                            speech['title'],
-                            speech['date']
-                        )
-                        
-                        # Send alert for important speeches
-                        if speech.get('importance', 'low') in ['high', 'medium']:
-                            self.daily_events['fed_communications'].append({
-                                'timestamp': datetime.now(timezone.utc),
-                                'speaker': speech['speaker'],
-                                'title': speech['title'],
-                                'analysis': analysis
-                            })
-                
-                self.last_updates['fed_speeches'] = datetime.now(timezone.utc)
-                
-        except Exception as e:
-            self.logger.error(f"Error processing Fed communications: {str(e)}")
-
-    async def send_daily_update(self):
-        """Send daily market update email"""
-        ny_tz = pytz.timezone('America/New_York')
-        now = datetime.now(ny_tz)
-        
-        # Send update at 4:30 PM ET
-        if (now.weekday() < 5 and
-            now.time() >= time(16, 30) and
-            not self._sent_daily_update_today()):
-            
-            try:
-                # Gather data
-                market_data = await self._get_market_context()
-                economic_data = await self._get_economic_context()
-                fed_analysis = await self._get_fed_context()
-
-                economic_data['significant_releases'] = self.daily_events['economic_releases']
-                fed_analysis['significant_communications'] = self.daily_events['fed_communications']
-                                
-                # Send update
-                self.logger.info("Sending daily update")
-                await self.email_notifier.send_daily_update(
-                    market_data,
-                    economic_data,
-                    fed_analysis
-                )
-
-                # Clear daily events after sending
-                self.daily_events = {
-                    'market_events': [],
-                    'economic_releases': [],
-                    'fed_communications': [],
-                    'system_events': []
-                }
-                
-                self.last_updates['daily_update'] = datetime.now(timezone.utc)
+                # Run the update
+                await self.run_daily_update()
                 
             except Exception as e:
-                self.logger.error(f"Error sending daily update: {str(e)}")
-
-    def _should_update(self, data_type: str) -> bool:
-        """Check if we should update specific data type"""
-        if data_type not in self.last_updates:
-            return True
-            
-        elapsed = datetime.now(timezone.utc) - self.last_updates[data_type]
-        return elapsed.total_seconds() >= COLLECTION_CONFIG['update_frequency'][data_type]
-
-    def _sent_daily_update_today(self) -> bool:
-        """Check if we've already sent today's update"""
-        if 'daily_update' not in self.last_updates:
-            return False
-            
-        last_update = self.last_updates['daily_update']
-        return last_update.date() == datetime.now(timezone.utc).date()
-
-    async def _get_market_context(self) -> Dict[str, Any]:
-        """Get current market context"""
-        try:
-            # Get recent market data
-            start_date = datetime.now(timezone.utc) - timedelta(days=1)
-            end_date = datetime.now(timezone.utc)
-            
-            # Get market data for all symbols
-            market_data = self.db.get_market_data(
-                start_date=start_date,
-                end_date=end_date
-            )
-            
-            # Get recent bond data
-            bond_data = self.db.get_bond_data(
-                start_date=start_date,
-                end_date=end_date
-            )
-            
-            # Get latest market regime
-            latest_regime = self.db.get_latest_market_regime()
-            
-            # Structure the data to match template expectations
-            return {
-                'data': {
-                    **market_data,  # This will include all asset classes
-                    'bonds': bond_data
-                },
-                'regime': {
-                    'risk_environment': latest_regime.risk_environment if latest_regime else 'neutral',
-                    'volatility_regime': latest_regime.volatility_regime if latest_regime else 'normal',
-                    'liquidity_conditions': latest_regime.liquidity_conditions if latest_regime else 'normal',
-                    'correlation_regime': latest_regime.correlation_regime if latest_regime else 'normal'
-                },
-                'trends': latest_regime.dominant_factors if latest_regime else [],
-                'timestamp': datetime.now(timezone.utc)
-            }
-                
-        except Exception as e:
-            self.logger.error(f"Error getting market context: {str(e)}")
-            return {
-                'data': {},
-                'regime': {
-                    'risk_environment': 'unknown',
-                    'volatility_regime': 'unknown',
-                    'liquidity_conditions': 'unknown',
-                    'correlation_regime': 'unknown'
-                },
-                'trends': [],
-                'timestamp': datetime.now(timezone.utc)
-            }
-
-    async def _get_economic_context(self) -> Dict[str, Any]:
-        """Get economic data context"""
-        try:
-            # Get recent economic releases
-            releases = self.db.get_latest_economic_data(
-                lookback_days=7
-            )
-            
-            # Group releases by importance
-            grouped_releases = {
-                'high': [],
-                'medium': [],
-                'low': []
-            }
-            
-            for release in releases:
-                importance = release.importance or 'low'
-                grouped_releases[importance].append(release)
-            
-            # Get latest analysis for each major indicator
-            analyses = {}
-            major_indicators = ['GDP', 'CPI', 'NFP', 'RETAIL_SALES']
-            
-            for indicator in major_indicators:
-                latest_analysis = self.db.get_latest_analysis(
-                    analysis_type='economic',
-                    indicator=indicator
-                )
-                if latest_analysis:
-                    analyses[indicator] = latest_analysis
-            
-            return {
-                'releases': grouped_releases,
-                'analyses': analyses,
-                'timestamp': datetime.now(timezone.utc)
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error getting economic context: {str(e)}")
-            return {}
-
-    async def _get_fed_context(self) -> Dict[str, Any]:
-        """Get Fed analysis context"""
-        try:
-            # Get recent Fed communications
-            recent_speeches = self.db.get_recent_fed_speeches(days=7)
-            
-            # Get latest FOMC meeting info
-            fomc_info = self.db.get_latest_fomc_meeting()
-            
-            # Get latest Fed analyses
-            analyses = self.db.get_latest_analysis(
-                analysis_type='fed',
-                limit=5
-            )
-            
-            # Calculate aggregate policy bias
-            policy_signals = []
-            for speech in recent_speeches:
-                if speech.analysis:
-                    policy_signals.append({
-                        'speaker': speech.speaker,
-                        'hawkish_score': speech.analysis.get('hawkish_score', 0),
-                        'date': speech.date
-                    })
-            
-            return {
-                'recent_communications': recent_speeches,
-                'fomc_info': fomc_info,
-                'analyses': analyses,
-                'policy_signals': policy_signals,
-                'timestamp': datetime.now(timezone.utc)
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error getting Fed context: {str(e)}")
-            return {}
-
-    async def _get_historical_context(self) -> Dict[str, Any]:
-        """Get historical data context"""
-        try:
-            # Get historical market data
-            market_history = self.db.get_market_data(
-                start_date=datetime.now(timezone.utc) - timedelta(days=252),  # 1 trading year
-                end_date=datetime.now(timezone.utc)
-            )
-            
-            # Get historical economic releases
-            economic_history = self.db.get_economic_data(
-                lookback_days=365  # 1 calendar year
-            )
-            
-            # Calculate historical volatility
-            volatility = {}
-            for symbol, data in market_history.items():
-                if len(data) > 20:  # Need at least 20 days for vol calc
-                    returns = pd.Series(data['close']).pct_change()
-                    volatility[symbol] = returns.std() * np.sqrt(252)  # Annualized
-            
-            # Get historical regimes
-            regimes = self.db.get_market_regimes(
-                start_date=datetime.now(timezone.utc) - timedelta(days=365)
-            )
-            
-            return {
-                'market_history': market_history,
-                'economic_history': economic_history,
-                'historical_volatility': volatility,
-                'market_regimes': regimes,
-                'timestamp': datetime.now(timezone.utc)
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Error getting historical context: {str(e)}")
-            return {}
+                logger.error(f"Error in main loop: {e}")
+                # Sleep for a minute before retrying
+                await asyncio.sleep(60)
 
 if __name__ == "__main__":
-    monitor = MarketMonitor()
-    asyncio.run(monitor.run())
+    bot = MacroBot()
+    asyncio.run(bot.run())
