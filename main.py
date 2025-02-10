@@ -47,7 +47,8 @@ class MacroBot:
                 messages=[{
                     "role": "user",
                     "content": """Provide a detailed summary of significant U.S. economic data releases 
-                    and important market events from the last 24 hours. Focus ONLY on:
+                    and important market events from the last 24 hours ONLY (since [current_date_time - 24h]). 
+                    Exclude any data or events outside this window - although you may reference important upcoming events/data releases for this week. Focus ONLY on:
 
                     1. Key U.S. economic data releases (like NFP, CPI, PCE, GDP, Unemployment Rate, Wage Growth, etc.) with:
                        - Actual numbers
@@ -62,13 +63,19 @@ class MacroBot:
                     4. Market-critical earnings (limited to mega-cap tech or other companies that 
                        can move the broader market)
 
+                    5. Significant movements in US bond markets
+
                     Exclude:
                     - Other countries' central bank decisions
                     - Regular corporate earnings
                     - Minor economic data
                     - Market index movements unless truly exceptional
 
-                    Format in clear, structured text with actual numbers and comparisons. Be sure to include the raw economic data in your response.
+                    Format with actual numbers and comparisons in clear HTML with proper structure using h1, h2, p tags etc. Be sure to include the raw economic data in your response.
+                    
+                    For each data point or event mentioned:
+                    - Verify it falls within the 24-hour window of [current_date_time - 24h] to [current_date_time]
+                    - Do NOT explicitly include the Date/Time of release in your response.
                     
                     Use the following as an example:
                     '1. Key U.S. Economic Data Releases
@@ -205,17 +212,22 @@ class MacroBot:
         logger.info("Starting daily update")
         events = await self.get_macro_events()
         if events:
-            logger.info("Got macro events, analyzing...")
-            analysis = await self.analyze_events(events)
-            if analysis:
-                subject = f"Daily Macro Update - {datetime.now().strftime('%Y-%m-%d')}"
-                logger.info("Analysis complete, sending email...")
-                await self.send_email(subject, analysis)
-                logger.info("Daily update complete")
-            else:
-                logger.error("Failed to get analysis from Claude")
+            subject = f"Daily Macro Update - {datetime.now().strftime('%Y-%m-%d')}"
+            html_content = f"""
+            <h1>Economic Analysis Report - February 2025</h1>
+            
+            <h2>Economic Events</h2>
+            <div class="events-text">
+                {events}
+            </div>
+            
+            <h2>Analysis</h2>
+            {await self.analyze_events(events)}
+            """
+            await self.send_email(subject, html_content)
+            logger.info("Daily update complete")
         else:
-            logger.error("Failed to get events from ChatGPT")
+            logger.error("Failed to get events from Perplexity")
 
     async def run(self):
         """Main loop - run daily at 9am ET"""
@@ -223,7 +235,7 @@ class MacroBot:
         while True:
             try:
                 now = datetime.now(pytz.timezone('America/New_York'))
-                target_time = time(9, 0)  # 9:00 AM ET
+                target_time = time(13, 22)  # 9:00 AM ET
                 
                 # If it's past 9am, wait until tomorrow
                 if now.time() >= target_time:
