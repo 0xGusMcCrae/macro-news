@@ -266,7 +266,7 @@ class MacroBot:
         while True:
             try:
                 now = datetime.now(pytz.timezone('America/New_York'))
-                target_time = time(9, 40)  # 9:00 AM ET
+                target_time = time(9, 0)  # 9:00 AM ET
                 
                 # If it's past 9am, wait until tomorrow
                 if now.time() >= target_time:
