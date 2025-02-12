@@ -42,12 +42,35 @@ class MacroBot:
     async def get_macro_events(self):
         """Query Perplexity for recent macro events"""
         try:
+            est = pytz.timezone('US/Eastern')
+            current_time = datetime.now(est)
             response = self.perplexity_client.chat.completions.create(
                 model="sonar-pro",
                 messages=[{
                     "role": "user",
-                    "content": """Provide a detailed summary of significant U.S. economic data releases 
-                    and important market events from the last 24 hours ONLY (since [current_date_time - 24h]). 
+                    "content": f"""
+                    CRITICAL: Start your search with the following checks in order:
+                    1. Check if today is a CPI release day (8:30 AM EST)
+                    2. Check if today is a NFP release day (8:30 AM EST)
+                    3. Check if today is a PCE release day (8:30 AM EST)
+                    4. Check if today is a GDP release day (8:30 AM EST)
+
+                    If any of these releases occurred today, they MUST be the first items reported, with actual numbers, regardless of other events.
+
+                    CRITICAL TIME WINDOW RULES:
+                    - Current time is explicitly provided as [current_date_time = {current_time.strftime('%A, %B %d, %Y, %I:%M %p EST')}]
+                    - Only include data released between [current_date_time - 24h] and [current_date_time]
+                    - For 8:30 AM EST releases: if release occurred TODAY at 8:30 AM EST, include it
+                    - For any other releases: if release occurred > 24 hours ago, exclude it even if it's a major release
+
+                    STRICT EXCLUSION RULES:
+                    - Any NFP, CPI, PCE, or GDP release from previous days (even if within the past week)
+                    - Only today's 8:30 AM EST releases or releases from the past 24 hours are valid
+
+                    IMPORTANT: For any day where CPI, NFP, PCE, or GDP data is released at 8:30 AM EST, your first action must be to retrieve and report that data before proceeding with any other information. These releases take absolute priority over all other events or communications.
+
+                    Provide a detailed summary of significant U.S. economic data releases 
+                    and important market events from the last 24 hours ONLY (since [current_date_time - 24h], INCLUSIVE of any data released at [current_date_time - 24h])). 
                     Exclude any data or events outside this window - although you may reference important upcoming events/data releases for this week. Focus ONLY on:
 
                     1. Key U.S. economic data releases (like NFP, CPI, PCE, GDP, Unemployment Rate, Wage Growth, etc.) with:
@@ -70,6 +93,14 @@ class MacroBot:
                     - Regular corporate earnings
                     - Minor economic data
                     - Market index movements unless truly exceptional
+
+                    Priority Data: The following releases should ALWAYS be included if they occurred on the current day or within the last 24 hours:
+                    - Consumer Price Index (CPI)
+                    - Non-Farm Payrolls (NFP)
+                    - Personal Consumption Expenditures (PCE)
+                    - GDP releases
+                    - Federal Reserve communications
+
 
                     Format with actual numbers and comparisons in clear HTML with proper structure using h1, h2, p tags etc. Be sure to include the raw economic data in your response.
                     
@@ -235,7 +266,7 @@ class MacroBot:
         while True:
             try:
                 now = datetime.now(pytz.timezone('America/New_York'))
-                target_time = time(9, 0)  # 9:00 AM ET
+                target_time = time(9, 40)  # 9:00 AM ET
                 
                 # If it's past 9am, wait until tomorrow
                 if now.time() >= target_time:
