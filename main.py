@@ -48,105 +48,7 @@ class MacroBot:
                 model="sonar-pro",
                 messages=[{
                     "role": "user",
-                    "content": f"""
-                    CRITICAL: Start your search with the following checks in order:
-                    1. Check if today is a CPI release day (8:30 AM EST)
-                    2. Check if today is a NFP release day (8:30 AM EST)
-                    3. Check if today is a PCE release day (8:30 AM EST)
-                    4. Check if today is a GDP release day (8:30 AM EST)
-
-                    If any of these releases occurred today, they MUST be the first items reported, with actual numbers, regardless of other events.
-
-                    CRITICAL TIME WINDOW RULES:
-                    - Current time is explicitly provided as [current_date_time = {current_time.strftime('%A, %B %d, %Y, %I:%M %p EST')}]
-                    - Only include data released between [current_date_time - 24h] and [current_date_time]
-                    - For 8:30 AM EST releases: if release occurred TODAY at 8:30 AM EST, include it
-                    - For any other releases: if release occurred > 24 hours ago, exclude it even if it's a major release
-
-                    STRICT EXCLUSION RULES:
-                    - Any NFP, CPI, PCE, or GDP release from previous days (even if within the past week)
-                    - Only today's 8:30 AM EST releases or releases from the past 24 hours are valid
-
-                    IMPORTANT: For any day where CPI, NFP, PCE, or GDP data is released at 8:30 AM EST, your first action must be to retrieve and report that data before proceeding with any other information. These releases take absolute priority over all other events or communications.
-
-                    Provide a detailed summary of significant U.S. economic data releases 
-                    and important market events from the last 24 hours ONLY (since [current_date_time - 24h], INCLUSIVE of any data released at [current_date_time - 24h])). 
-                    Exclude any data or events outside this window - although you may reference important upcoming events/data releases for this week. Focus ONLY on:
-
-                    1. Key U.S. economic data releases (like NFP, CPI, PCE, GDP, Unemployment Rate, Wage Growth, etc.) with:
-                       - Actual numbers
-                       - Expected numbers
-                       - Previous numbers
-                       - Any notable components or sub-indices
-
-                    2. Federal Reserve communications or policy changes
-
-                    3. Major Chinese economic data or significant policy changes
-
-                    4. Market-critical earnings (limited to mega-cap tech or other companies that 
-                       can move the broader market)
-
-                    5. Significant movements in US bond markets
-
-                    Exclude:
-                    - Other countries' central bank decisions
-                    - Regular corporate earnings
-                    - Minor economic data
-                    - Market index movements unless truly exceptional
-
-                    Priority Data: The following releases should ALWAYS be included if they occurred on the current day or within the last 24 hours:
-                    - Consumer Price Index (CPI)
-                    - Non-Farm Payrolls (NFP)
-                    - Personal Consumption Expenditures (PCE)
-                    - GDP releases
-                    - Federal Reserve communications
-
-
-                    Format with actual numbers and comparisons in clear HTML with proper structure using h1, h2, p tags etc. Be sure to include the raw economic data in your response.
-                    
-                    For each data point or event mentioned:
-                    - Verify it falls within the 24-hour window of [current_date_time - 24h] to [current_date_time]
-                    - Do NOT explicitly include the Date/Time of release in your response.
-                    
-                    Use the following as an example:
-                    '1. Key U.S. Economic Data Releases
-                    * Non-Farm Payrolls (NFP) for January 2025:
-                    * Actual: 143,000 jobs added
-                    * Expected: 169,000 jobs
-                    * Previous: (Revised) 150,000 jobs
-                    * Unemployment Rate: Decreased to 4.0% from the previous 4.1%
-                    * Average Hourly Earnings: Increased by 0.5% month-over-month; 4.1% year-over-year
-                    * Notable Sectors:
-                        * Healthcare: Strong job growth
-                        * Retail: Positive gains
-                        * Government: Increased employment
-                        * Mining: Decline in jobs
-                    2. Federal Reserve Communications or Policy Changes
-                    * Chicago Fed President Austan Goolsbee: Emphasized a cautious approach to interest rate cuts due to uncertainties from recent policy changes, despite favorable economic indicators.
-                    reuters.com
-
-                    Dallas Fed President Lorie Logan: Indicated a preference to maintain current interest rates for an extended period, even if inflation approaches the 2% target, citing the need for a cooling labor market before considering rate reductions.
-                    marketwatch.com
-
-                    Fed Vice Chair Philip Jefferson: Expressed contentment with the current restrictive monetary policy stance and advocated for patience to assess the impacts of recent administrative policies before making further adjustments.
-                    reuters.com
-
-                    3. Major Chinese Economic Data or Significant Policy Changes
-                    * Trade Tariffs: China imposed a 10% tariff on U.S. crude oil imports in response to U.S. tariffs, potentially reducing U.S. crude exports to China in 2025.
-                    reuters.com
-                    4. Market-Critical Earnings
-                    * Amazon (AMZN):
-                    * Q4 2024 Results:
-                        * Earnings Per Share (EPS): $1.86
-                        * Revenue: $187.8 billion
-                        * Analyst Expectations: EPS of $1.80; Revenue of $187.3 billion
-                    * Q1 2025 Guidance:
-                        * Revenue Forecast: $153.3 billion
-                        * Operating Income Forecast: $16 billion
-                        * Analyst Expectations: Revenue of $158.6 billion; Operating Income of $18.4 billion
-                    * Notable Segment:
-                        * Amazon Web Services (AWS): Revenue of $28.79 billion, slightly below expectations but a 19% year-over-year increase.
-                    * Market Reaction: Stock declined over 5% in after-hours trading due to the conservative guidance.'"""
+                    "content": f"""What economic data releases occurred today in the united states? Please format your response with proper HTML tags."""
                 }]
             )
             return response.choices[0].message.content
@@ -266,7 +168,7 @@ class MacroBot:
         while True:
             try:
                 now = datetime.now(pytz.timezone('America/New_York'))
-                target_time = time(9, 0)  # 9:00 AM ET
+                target_time = time(10, 12)  # 9:00 AM ET
                 
                 # If it's past 9am, wait until tomorrow
                 if now.time() >= target_time:
