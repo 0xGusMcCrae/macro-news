@@ -48,7 +48,9 @@ class MacroBot:
                 model="sonar-pro",
                 messages=[{
                     "role": "user",
-                    "content": f"""What economic data releases occurred today in the united states? Please format your response with proper HTML tags."""
+                    "content": f"""What macroeconomic data releases occurred today in the united states? 
+                                   Also include major new tariffs, market-critical earnings, fed speeches, etc. 
+                                   Please format your response with proper HTML tags."""
                 }]
             )
             return response.choices[0].message.content
