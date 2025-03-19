@@ -142,14 +142,15 @@ class MacroBot:
         except Exception as e:
             logger.error(f"Error sending email: {e}")
 
-    async def run_daily_update(self):
-        """Run the daily macro update process"""
-        logger.info("Starting daily update")
+    async def run_update(self, is_morning=True):
+        """Run the macro update process"""
+        time_of_day = "Morning" if is_morning else "Evening"
+        logger.info(f"Starting {time_of_day.lower()} update")
         events = await self.get_macro_events()
         if events:
-            subject = f"Daily Macro Update - {datetime.now().strftime('%Y-%m-%d')}"
+            subject = f"{time_of_day} Macro Update - {datetime.now().strftime('%Y-%m-%d')}"
             html_content = f"""
-            <h1>Economic Analysis Report - February 2025</h1>
+            <h1>Economic Analysis Report - {datetime.now().strftime('%B %Y')}</h1>
             
             <h2>Economic Events</h2>
             <div class="events-text">
@@ -160,34 +161,44 @@ class MacroBot:
             {await self.analyze_events(events)}
             """
             await self.send_email(subject, html_content)
-            logger.info("Daily update complete")
+            logger.info(f"{time_of_day} update complete")
         else:
-            logger.error("Failed to get events from Perplexity")
+            logger.error(f"Failed to get events from Perplexity for {time_of_day.lower()} update")
 
     async def run(self):
-        """Main loop - run daily at 9am ET"""
+        """Main loop - run daily at 9am and 7pm ET"""
         logger.info("Starting MacroBot")
         while True:
             try:
                 now = datetime.now(pytz.timezone('America/New_York'))
-                target_time = time(9, 0)  # 9:00 AM ET
+                morning_time = time(9, 0)  # 9:00 AM ET
+                evening_time = time(19, 0)  # 7:00 PM ET
                 
-                # If it's past 9am, wait until tomorrow
-                if now.time() >= target_time:
-                    tomorrow = now.date() + timedelta(days=1)
-                    next_run = datetime.combine(tomorrow, target_time)
+                # Determine which update should run next
+                if now.time() < morning_time:
+                    # Before 9am, run morning update today
+                    next_run = datetime.combine(now.date(), morning_time)
                     next_run = pytz.timezone('America/New_York').localize(next_run)
+                    is_morning = True
+                elif now.time() < evening_time:
+                    # Between 9am and 7pm, run evening update today
+                    next_run = datetime.combine(now.date(), evening_time)
+                    next_run = pytz.timezone('America/New_York').localize(next_run)
+                    is_morning = False
                 else:
-                    next_run = datetime.combine(now.date(), target_time)
+                    # After 7pm, run morning update tomorrow
+                    tomorrow = now.date() + timedelta(days=1)
+                    next_run = datetime.combine(tomorrow, morning_time)
                     next_run = pytz.timezone('America/New_York').localize(next_run)
+                    is_morning = True
 
                 # Sleep until next run time
                 sleep_seconds = (next_run - now).total_seconds()
-                logger.info(f"Sleeping until {next_run}")
+                logger.info(f"Sleeping until {'morning' if is_morning else 'evening'} update at {next_run}")
                 await asyncio.sleep(sleep_seconds)
                 
                 # Run the update
-                await self.run_daily_update()
+                await self.run_update(is_morning)
                 
             except Exception as e:
                 logger.error(f"Error in main loop: {e}")
