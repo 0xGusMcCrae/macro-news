@@ -49,7 +49,9 @@ class MacroBot:
                 messages=[{
                     "role": "user",
                     "content": f"""What macroeconomic data releases occurred today in the united states? 
-                                   Also include major new tariffs, market-critical earnings, fed speeches, etc. 
+                                   Also include major new tariffs, market-critical earnings, fed speeches, etc.  
+                                   Do not tell me that something was released without giving numbers
+                                   or a summary in the case of speeches.
                                    Please format your response with proper HTML tags."""
                 }]
             )
