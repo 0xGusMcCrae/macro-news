@@ -48,11 +48,19 @@ class MacroBot:
                 model="sonar-pro",
                 messages=[{
                     "role": "user",
-                    "content": f"""What macroeconomic data releases occurred today in the united states? 
-                                   Also include major new tariffs, market-critical earnings, fed speeches, etc.  
-                                   Do not tell me that something was released without giving numbers
-                                   or a summary in the case of speeches.
-                                   Please format your response with proper HTML tags."""
+                    "content": f"""Provide a concise summary of TODAY'S U.S. macroeconomic developments only:
+
+                                    1. Economic data releases: List each indicator released today with actual figures, previous period values, and consensus expectations (e.g., "CPI: +0.4% m/m actual vs +0.3% expected, prior +0.2%")
+
+                                    2. Fed communications: Summarize only the most market-moving points from any Fed speeches today using direct quotes when possible
+
+                                    3. Treasury/rates: Note any significant Treasury auction results or unusual market movements
+
+                                    4. Policy changes: Briefly describe any new tariffs, trade policies, or fiscal announcements made today
+
+                                    Include ONLY items that were actually released or occurred TODAY. For each data point, include the specific numbers and their significance in 1-2 sentences maximum. If nothing significant was released in a category, simply state "No major releases today."
+
+                                    Please format your response with proper HTML tags."""
                 }]
             )
             return response.choices[0].message.content
