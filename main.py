@@ -69,12 +69,12 @@ class MacroBot:
             return None
 
     async def analyze_events(self, events_text):
-        """Have Claude analyze the macro events"""
+        """Analyze the macro events"""
         try:
-            response = self.claude_client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=4000,
-                temperature=0.3,
+            response = self.perplexity_client.chat.completions.create(
+                model="sonar-reasoning-pro",
+                max_tokens=5000,
+                temperature=0.1,
                 messages=[{
                     "role": "user",
                     "content": f"""As a market analyst, analyze these economic events and their implications:
@@ -129,7 +129,7 @@ class MacroBot:
                     These developments suggest a complex economic environment in 2025, characterized by resilient but moderating growth, persistent inflation pressures, and evolving global trade dynamics.'"""
                 }]
             )
-            return response.content[0].text
+            return response.choices[0].message.content
         except Exception as e:
             logger.error(f"Error analyzing events: {e}")
             return None
